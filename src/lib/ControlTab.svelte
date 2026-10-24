@@ -19,6 +19,7 @@
   import { calculateVisualizationPathTime, normalizePaths } from "../utils";
   import SelectedPathInspector from "./components/SelectedPathInspector.svelte";
   import SelectedGroupInspector from "./components/SelectedGroupInspector.svelte";
+  import RobotPanel from "./robot/RobotPanel.svelte";
   import { curveThroughPoints } from "../utils/math";
   import {
     atomicSegments,
@@ -361,6 +362,15 @@
         onCommitPointChange={commitSelectedPointChange}
       />
     {/if}
+
+    <RobotPanel
+      bind:startPoint
+      bind:lines
+      bind:sequence
+      {selectedLine}
+      totalTime={timePrediction?.totalTime ?? 0}
+      {recordChange}
+    />
   </div>
 
   <PlaybackControls

@@ -4,13 +4,13 @@ import App from "./App.svelte";
 
 const app = mount(App, { target: document.body });
 
-// Register the service worker only in production builds. It uses cache-first for
-// the JS/CSS bundle, which breaks hot-reload and can serve stale (un-optimized)
-// modules during development.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch((error) => {
-    console.error(`Service worker registration failed: ${error}`);
-  });
+// BioBuzz: no service worker. This copy is served by the robot's dashboard, and a
+// cache-first worker there would also cache the dashboard's own pages and keep serving
+// stale ones after an update. Remove any worker an earlier build installed.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) registration.unregister();
+  }).catch(() => {});
 }
 
 export default app;

@@ -53,6 +53,7 @@
   import { showToast } from "./lib/toast";
   import { basename, pathStem } from "./utils/filename";
   import { buildPathElements } from "./lib/scene/paths";
+  import { buildRobotMarkers } from "./lib/robot/markers";
   import {
     fitStrokeToLines,
     smoothStrokePreview,
@@ -1203,6 +1204,7 @@
         }
       });
     }
+    two.add(...buildRobotMarkers(startPoint, lines, x, y));
     two.add(...points);
 
     two.update();

@@ -70,10 +70,27 @@ export type Path = {
   waitAfterName?: string;
 } & (Atomic | Compound);
 
+/** A BioBuzz robot action that fires part way along a path (see src/lib/robot). */
+export interface RobotEvent {
+  id: string;
+  /** Arc-length completion of the path, 0 (start) to 1 (end). */
+  at: number;
+  action: string;
+  params: Record<string, number>;
+}
+
+/** A BioBuzz robot action run between paths, stored on a sequence wait item. */
+export interface RobotStepAction {
+  name: string;
+  params: Record<string, number>;
+}
+
 export interface Atomic {
   kind: "atomic";
   endPoint: Point;
   controlPoints: ControlPoint[];
+  /** BioBuzz: robot actions placed along this path. */
+  robotEvents?: RobotEvent[];
   /** Interior poses for Pedro's Paths.through(); never emitted as controls. */
   throughPoints?: BasePoint[];
   heading: Heading;
@@ -108,6 +125,8 @@ export type SequenceWaitItem = {
   name: string;
   durationMs: number;
   locked?: boolean;
+  /** BioBuzz: the robot action this step runs; durationMs is its estimated time. */
+  robotAction?: RobotStepAction;
 };
 
 export type SequenceItem = SequencePathItem | SequenceWaitItem;

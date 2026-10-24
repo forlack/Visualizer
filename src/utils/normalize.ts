@@ -10,6 +10,7 @@ import type {
   Point,
   SequenceItem,
   StartPose,
+  RobotEvent,
 } from "../types";
 import { getRandomColor } from "./color";
 import { headingAngleAt } from "./headingInterpolation";
@@ -51,6 +52,8 @@ type StoredCommon = {
   waitAfterName?: string;
   /** Either the current object form or the pre-migration string. */
   heading?: Heading | HeadingType;
+  /** BioBuzz robot actions along the path. */
+  robotEvents?: RobotEvent[];
 };
 
 /**
@@ -194,6 +197,7 @@ export function normalizePaths(input: StoredPath[] = []): Path[] {
         locked: path.endPoint?.locked,
       },
       controlPoints: path.controlPoints || [],
+      robotEvents: Array.isArray(path.robotEvents) ? path.robotEvents : undefined,
       throughPoints: path.throughPoints?.map((point) => ({
         x: Number(point.x) || 0,
         y: Number(point.y) || 0,
