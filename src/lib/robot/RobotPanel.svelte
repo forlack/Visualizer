@@ -44,6 +44,8 @@
   let routeName = $state(loadName());
   let routes: string[] = $state([]);
   let loadedHash: string | null = $state(null);
+  /** The robot file this sequence was opened from or last saved to. */
+  let currentFile: string | null = $state(null);
   let message = $state("");
   let messageBad = $state(false);
   let problems: string[] = $state([]);
@@ -177,20 +179,38 @@
     return result;
   }
 
+  /** Saves under the name in the box. A different auton that already exists is only replaced after asking. */
   async function saveToRobot() {
+    const target = fileName;
+    if (routes.includes(target) && target !== currentFile
+        && !confirm(`${target} is a different auton that already exists. Replace it?`)) return;
     const { route, problems: found } = build();
     if (found.length && !confirm(`Problems:\n\n${found.join("\n")}\n\nSave anyway?`)) return;
     try {
-      const result = await saveRobotRoute(fileName, JSON.stringify(route, null, 2) + "\n",
-        loadedHash && routes.includes(fileName) ? loadedHash : "*");
+      // Saving over the file we opened: refuse if someone changed it on the robot since.
+      const base = target === currentFile && loadedHash ? loadedHash : routes.includes(target) ? "*" : "new";
+      const result = await saveRobotRoute(target, JSON.stringify(route, null, 2) + "\n", base);
       loadedHash = result.hash;
+      currentFile = target;
       try { localStorage.setItem("biobuzz.route", routeName); } catch { /* private window */ }
-      say(`Saved ${fileName} on ${robotName || "the robot"}. Press INIT to run it.`);
-      window.parent?.postMessage({ type: "biobuzz:saved", path: fileName }, "*");
+      say(`Saved ${target} on ${robotName || "the robot"}. Press INIT to run it.`);
+      window.parent?.postMessage({ type: "biobuzz:saved", path: target }, "*");
       refreshRoutes();
     } catch (error) {
       say(String((error as Error).message), true);
     }
+  }
+
+  /** Makes a new auton file from what is on screen, leaving the opened one as it was. */
+  async function saveAsNew() {
+    const name = prompt("Name for the new auton:", `${safeName(routeName)}-copy`);
+    if (!name || !name.trim()) return;
+    const target = `autos/${safeName(name)}.json`;
+    if (routes.includes(target) && !confirm(`${target} already exists. Replace it?`)) return;
+    routeName = name.trim();
+    currentFile = target;      // replacing was confirmed above, so do not ask again
+    loadedHash = null;
+    await saveToRobot();
   }
 
   function applyImported(text: string) {
@@ -210,6 +230,7 @@
       applyImported(text);
       routeName = path.replace(/^autos\//, "").replace(/\.json$/, "");
       loadedHash = hash;
+      currentFile = path;
       say(`Loaded ${path} from the robot.`);
     } catch (error) {
       say(String((error as Error).message), true);
@@ -243,7 +264,7 @@
 
 <div class="robot-panel flex flex-col gap-3 w-full border border-[#333333] bg-[#222222] p-3" data-testid="robot-panel">
   <div class="flex items-center justify-between gap-2">
-    <div class="font-semibold">Robot route</div>
+    <div class="font-semibold">Auton Sequence</div>
     <span class="text-xs px-2 py-0.5 rounded-full {online ? 'bg-green-900/50 text-green-300' : 'bg-neutral-700 text-neutral-300'}"
       title={online ? "Actions come from the robot" : "Not served by a robot: using the built-in action list"}>
       {online ? `connected: ${robotName}` : "offline"}
@@ -254,7 +275,10 @@
     <input class="flex-1 min-w-32 bg-[#2b2b2b] border border-[#444] rounded px-2 py-1 text-sm"
       bind:value={routeName} aria-label="Route name" data-testid="route-name" />
     <button class="px-2 py-1 rounded bg-yellow-500 text-black text-sm font-semibold disabled:opacity-40"
-      onclick={saveToRobot} disabled={!online} data-testid="route-save">Save to robot</button>
+      onclick={saveToRobot} disabled={!online} data-testid="route-save"
+      title="Save to the robot under the name in the box">Save</button>
+    <button class="px-2 py-1 rounded bg-[#333] text-sm disabled:opacity-40" onclick={saveAsNew} disabled={!online}
+      data-testid="route-save-as" title="Make a new auton file, keeping the one you opened">Save as new…</button>
     <button class="px-2 py-1 rounded bg-[#333] text-sm" onclick={download}>Download</button>
     <label class="px-2 py-1 rounded bg-[#333] text-sm cursor-pointer">Import
       <input type="file" accept=".json,application/json" class="hidden" onchange={importFile} /></label>
@@ -269,8 +293,17 @@
       </select>
     </div>
   {/if}
-  <div class="text-xs text-neutral-400">Saves as <code>{fileName}</code>. Set <code>PedroAutonomous.ROUTE</code>
-    to <code>{safeName(routeName)}</code> in the dashboard's Tune tab to run it.</div>
+  <div class="text-xs text-neutral-400" data-testid="route-file">
+    {#if currentFile && currentFile !== fileName}
+      Opened <code>{currentFile}</code>; <b>Save</b> will write a new file, <code>{fileName}</code>.
+    {:else if currentFile}
+      Editing <code>{currentFile}</code>.
+    {:else}
+      Not saved yet; <b>Save</b> writes <code>{fileName}</code>.
+    {/if}
+    One file holds the whole auton: start, paths, and every step. To run it, set
+    <code>PedroAutonomous.ROUTE</code> to <code>{safeName(routeName)}</code> in the Tune tab (or pick it with the D-pad at INIT).
+  </div>
   {#if message}<div class="text-sm {messageBad ? 'text-red-400' : 'text-green-400'}" data-testid="route-message">{message}</div>{/if}
   {#each problems as problem (problem)}<div class="text-sm text-amber-400">⚠ {problem}</div>{/each}
 
