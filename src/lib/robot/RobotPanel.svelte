@@ -295,6 +295,9 @@
       title="Save to the robot under the name in the box">Save</button>
     <button class="px-2 py-1 rounded bg-[#333] text-sm disabled:opacity-40" onclick={saveAsNew} disabled={!online}
       data-testid="route-save-as" title="Make a new auton file, keeping the one you opened">Save as new…</button>
+    <button class="px-2 py-1 rounded bg-[#333] text-sm disabled:opacity-40" disabled={!online || !currentFile}
+      title="Every saved version of this auton, with Restore" data-testid="route-history"
+      onclick={() => window.parent?.postMessage({ type: "biobuzz:history", path: currentFile }, "*")}>History</button>
     <button class="px-2 py-1 rounded bg-[#333] text-sm" onclick={download}>Download</button>
     <label class="px-2 py-1 rounded bg-[#333] text-sm cursor-pointer">Import
       <input type="file" accept=".json,application/json" class="hidden" onchange={importFile} /></label>
