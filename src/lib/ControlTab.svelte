@@ -369,6 +369,7 @@
       bind:sequence
       {selectedLine}
       totalTime={timePrediction?.totalTime ?? 0}
+      {settings}
       {recordChange}
     />
   </div>

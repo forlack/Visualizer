@@ -26,6 +26,8 @@
     sequence: SequenceItem[];
     selectedLine: AtomicPath | null;
     totalTime: number;
+    /** The visualizer's settings: robot size and safety margin are saved with the route. */
+    settings?: { rWidth: number; rHeight: number; safetyMargin: number };
     recordChange?: () => void;
   }
 
@@ -35,6 +37,7 @@
     sequence = $bindable(),
     selectedLine = null,
     totalTime = 0,
+    settings,
     recordChange,
   }: Props = $props();
 
@@ -213,7 +216,8 @@
   // ---- Files ----------------------------------------------------------------------
 
   function build() {
-    const result = exportRoute(routeName, startPoint, lines, sequence, actions);
+    const robot = settings ? { width: settings.rWidth, length: settings.rHeight, safetyMargin: settings.safetyMargin } : undefined;
+    const result = exportRoute(routeName, startPoint, lines, sequence, actions, robot);
     problems = result.problems;
     return result;
   }
@@ -259,6 +263,11 @@
     sequence = imported.sequence;
     routeName = imported.name;
     problems = imported.problems;
+    if (imported.robot && settings) {
+      settings.rWidth = imported.robot.width;
+      settings.rHeight = imported.robot.length;
+      settings.safetyMargin = imported.robot.safetyMargin;
+    }
     recordChange?.();
   }
 

@@ -127,10 +127,14 @@ export function describeStep(item: SequenceWaitItem): string {
 
 // ---- Export: project -> route file ------------------------------------------------------
 
+export interface RobotSize { width: number; length: number; safetyMargin: number }
+
 export interface RouteFile {
   version: 2;
   name: string;
   start: { x: number; y: number; heading: number };
+  /** The robot's size and safety margin (inches) the paths were drawn with. */
+  robot?: RobotSize;
   paths: {
     name: string;
     points: number[][];
@@ -165,6 +169,7 @@ export function exportRoute(
   lines: Path[],
   sequence: SequenceItem[],
   actions: RobotActionDef[],
+  robot?: RobotSize,
 ): { route: RouteFile; problems: string[] } {
   const problems: string[] = [];
   const known = new Map(actions.map((a) => [a.name, a]));
@@ -218,6 +223,7 @@ export function exportRoute(
       version: 2,
       name,
       start: { x: round(startPoint.x), y: round(startPoint.y), heading: round(startPoint.headingDeg) },
+      ...(robot ? { robot: { width: round(robot.width), length: round(robot.length), safetyMargin: round(robot.safetyMargin) } } : {}),
       paths,
       steps,
     },
@@ -230,7 +236,7 @@ export function exportRoute(
 const COLORS = ["#f5b301", "#58a6ff", "#3fb950", "#bc8cff", "#ff7b72", "#39c5cf", "#ffa657", "#d2a8ff"];
 
 export function importRoute(text: string, actions: RobotActionDef[]): {
-  name: string; startPoint: StartPose; lines: Path[]; sequence: SequenceItem[]; problems: string[];
+  name: string; startPoint: StartPose; lines: Path[]; sequence: SequenceItem[]; problems: string[]; robot: RobotSize | null;
 } {
   const route = JSON.parse(text) as RouteFile;
   if (route.version !== 2) throw new Error('Not a BioBuzz route file ("version": 2)');
@@ -283,7 +289,10 @@ export function importRoute(text: string, actions: RobotActionDef[]): {
       });
     }
   }
-  return { name: route.name ?? "route", startPoint, lines, sequence, problems };
+  const r = route.robot;
+  const robot = r && [r.width, r.length, r.safetyMargin].every((v) => typeof v === "number" && isFinite(v) && v >= 0)
+    ? { width: r.width, length: r.length, safetyMargin: r.safetyMargin } : null;
+  return { name: route.name ?? "route", startPoint, lines, sequence, problems, robot };
 }
 
 export function isAtomic(path: Path | null | undefined): path is AtomicPath {
