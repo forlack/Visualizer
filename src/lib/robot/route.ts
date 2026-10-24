@@ -239,7 +239,7 @@ export function importRoute(text: string, actions: RobotActionDef[]): {
   name: string; startPoint: StartPose; lines: Path[]; sequence: SequenceItem[]; problems: string[]; robot: RobotSize | null;
 } {
   const route = JSON.parse(text) as RouteFile;
-  if (route.version !== 2) throw new Error('Not a BioBuzz route file ("version": 2)');
+  if (route.version !== 2) throw new Error('Not a Total Chaos route file ("version": 2)');
   const problems: string[] = [];
   const known = new Map(actions.map((a) => [a.name, a]));
   const startPoint: StartPose = { x: route.start.x, y: route.start.y, headingDeg: route.start.heading, name: "start" };
