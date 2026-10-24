@@ -81,6 +81,25 @@
   let curveTension = $state(1.0);
   let obstaclesOpen = $state(true);
 
+  // Two tabs: the paths themselves, and the auton sequence (remembered in this browser).
+  const PANEL_TAB_KEY = "totalChaos.panelTab";
+  function savedPanelTab(): "paths" | "auton" {
+    try {
+      return localStorage.getItem(PANEL_TAB_KEY) === "auton" ? "auton" : "paths";
+    } catch {
+      return "paths";
+    }
+  }
+  let panelTab = $state<"paths" | "auton">(savedPanelTab());
+  function showPanelTab(tab: "paths" | "auton") {
+    panelTab = tab;
+    try {
+      localStorage.setItem(PANEL_TAB_KEY, tab);
+    } catch {
+      // private window: just not remembered
+    }
+  }
+
   // The inspector follows whatever is selected: a group shows group controls,
   // anything else falls back to the first drivable curve.
   let selectedPath: Path | null = $derived(
@@ -283,6 +302,26 @@
   <div
     class="min-h-0 flex-1 flex flex-col justify-start items-start w-full bg-[#1a1a1a] border border-[#333333] p-3 overflow-y-auto overflow-x-hidden gap-3"
   >
+    <div class="panel-tabs w-full flex border-b border-[#333333]" role="tablist">
+      {#each [["paths", "Paths"], ["auton", "Auton Sequence"]] as [id, label]}
+        <button
+          role="tab"
+          aria-selected={panelTab === id}
+          data-testid="panel-tab-{id}"
+          class="px-3 py-1.5 text-sm -mb-px border-b-2 {panelTab === id
+            ? 'border-[#f5b301] text-white font-semibold'
+            : 'border-transparent text-gray-400 hover:text-gray-200'}"
+          onclick={() => showPanelTab(id as "paths" | "auton")}>{label}</button
+        >
+      {/each}
+    </div>
+
+    <!-- Both tabs stay mounted (hidden, not removed), so nothing in them is lost on a switch. -->
+    <div
+      class="{panelTab === 'paths' ? 'flex' : 'hidden'} w-full flex-col gap-3"
+      role="tabpanel"
+      data-testid="panel-paths"
+    >
     <div class="w-full flex flex-col gap-2">
       {#if settings.experimentalFeatures?.obstacles}
         <button
@@ -362,7 +401,13 @@
         onCommitPointChange={commitSelectedPointChange}
       />
     {/if}
+    </div>
 
+    <div
+      class="{panelTab === 'auton' ? 'flex' : 'hidden'} w-full flex-col"
+      role="tabpanel"
+      data-testid="panel-auton"
+    >
     <RobotPanel
       bind:startPoint
       bind:lines
@@ -372,6 +417,7 @@
       {settings}
       {recordChange}
     />
+    </div>
   </div>
 
   <PlaybackControls
