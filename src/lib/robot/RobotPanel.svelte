@@ -49,15 +49,26 @@
   let message = $state("");
   let messageBad = $state(false);
   let problems: string[] = $state([]);
-  let addStepAction = $state("shoot");
-  let addEventAction = $state("flywheelsOn");
+  let addMode: "function" | "path" = $state("function");
+  let addFunctionAction = $state("shoot");
+  let addAfter = $state("end");
+  let addOnPathAction = $state("flywheelsOn");
+  let addPathId = $state("");
+  let addPercent = $state(50);
 
   let stepActions = $derived(actions);
+  let allPaths = $derived(atomicSegments(lines));
   let pathActions = $derived(actions.filter((a) => a.onPath));
   let byName = $derived(new Map(actions.map((a) => [a.name, a])));
   let names = $derived(pathNames(lines, startPoint));
   let colors = $derived(new Map(atomicSegments(lines).map((l) => [l.id, l.color])));
   let fileName = $derived(`autos/${safeName(routeName)}.json`);
+
+  // Clicking a path on the field makes it the one "Function on a path" adds to.
+  $effect(() => {
+    if (selectedLine) addPathId = selectedLine.id;
+    else if (!allPaths.some((l) => l.id === addPathId) && allPaths.length) addPathId = allPaths[0].id;
+  });
 
   onMount(async () => {
     const result = await fetchActions();
@@ -84,28 +95,27 @@
     try { routes = await listRobotRoutes(); } catch { routes = []; }
   }
 
-  // ---- Steps between paths ----------------------------------------------------
+  // ---- The sequence ---------------------------------------------------------
 
   /** The sequence, filled in with every path when it is empty (the editor's default). */
   function currentSequence(): SequenceItem[] {
     return sequence.length ? sequence : atomicSegments(lines).map((l) => ({ kind: "path" as const, lineId: l.id }));
   }
 
-  function addStep() {
-    const def = byName.get(addStepAction);
+  function stepLabel(item: SequenceItem, index: number): string {
+    if (item.kind === "path") return `${index + 1}. follow ${names.get(item.lineId) ?? "?"}`;
+    return `${index + 1}. ${item.robotAction ? label(item.robotAction.name) : "wait"}`;
+  }
+
+  /** "Function": a step between paths, inserted after the chosen step (default: at the end). */
+  function addFunction() {
+    const def = byName.get(addFunctionAction);
     if (!def) return;
     const items = [...currentSequence()];
-    // After the selected path's step, or at the end.
-    let at = items.length;
-    if (selectedLine) {
-      const index = items.findIndex((i) => i.kind === "path" && i.lineId === selectedLine!.id);
-      if (index >= 0) {
-        at = index + 1;
-        while (at < items.length && items[at].kind === "wait") at++;
-      }
-    }
-    items.splice(at, 0, actionStep(def));
+    const after = addAfter === "end" ? items.length - 1 : Math.min(Number(addAfter), items.length - 1);
+    items.splice(after + 1, 0, actionStep(def));
     sequence = items;
+    addAfter = "end";
     recordChange?.();
   }
 
@@ -136,38 +146,44 @@
     sequence = items;
   }
 
-  // ---- Actions along the selected path -------------------------------------------
+  // ---- Functions on a path ------------------------------------------------------
 
-  function updateSelected(change: (line: AtomicPath) => AtomicPath) {
-    if (!selectedLine) return;
-    const id = selectedLine.id;
+  function updatePath(id: string, change: (line: AtomicPath) => AtomicPath) {
     const walk = (nodes: Path[]): Path[] => nodes.map((node) =>
       node.kind === "compound" ? { ...node, segments: walk(node.segments) }
         : node.id === id ? change(node) : node);
     lines = walk(lines);
   }
 
-  function addEvent() {
-    const def = byName.get(addEventAction);
-    if (!def || !selectedLine) return;
-    updateSelected((line) => ({
+  function pathEvents(id: string) {
+    const line = atomicSegments(lines).find((l) => l.id === id);
+    return [...(line?.robotEvents ?? [])].sort((a, b) => a.at - b.at);
+  }
+
+  /** "Function on a path": fires when the robot is this far along the chosen path. */
+  function addOnPath() {
+    const def = byName.get(addOnPathAction);
+    const pathId = addPathId || atomicSegments(lines)[0]?.id;
+    if (!def || !pathId) return;
+    const at = Math.min(100, Math.max(0, Number(addPercent) || 0)) / 100;
+    updatePath(pathId, (line) => ({
       ...line,
       robotEvents: [...(line.robotEvents ?? []), {
-        id: makePathId().replace("line-", "event-"), at: 0.5, action: def.name, params: defaultParams(def),
+        id: makePathId().replace("line-", "event-"), at, action: def.name, params: defaultParams(def),
       }],
     }));
     recordChange?.();
   }
 
-  function setEvent(eventId: string, change: Record<string, unknown>) {
-    updateSelected((line) => ({
+  function setEvent(pathId: string, eventId: string, change: Record<string, unknown>) {
+    updatePath(pathId, (line) => ({
       ...line,
       robotEvents: (line.robotEvents ?? []).map((e) => (e.id === eventId ? { ...e, ...change } : e)),
     }));
   }
 
-  function removeEvent(eventId: string) {
-    updateSelected((line) => ({ ...line, robotEvents: (line.robotEvents ?? []).filter((e) => e.id !== eventId) }));
+  function removeEvent(pathId: string, eventId: string) {
+    updatePath(pathId, (line) => ({ ...line, robotEvents: (line.robotEvents ?? []).filter((e) => e.id !== eventId) }));
     recordChange?.();
   }
 
@@ -308,76 +324,104 @@
   {#each problems as problem (problem)}<div class="text-sm text-amber-400">⚠ {problem}</div>{/each}
 
   <div class="flex items-center justify-between">
-    <div class="font-semibold text-sm">Steps</div>
+    <div class="font-semibold text-sm">Sequence</div>
     <div class="text-xs {totalTime > 30 ? 'text-red-400 font-semibold' : 'text-neutral-400'}" data-testid="route-time">
       about {totalTime.toFixed(1)} s{totalTime > 30 ? " — over the 30 s autonomous!" : " of 30 s"}
     </div>
   </div>
   <ol class="flex flex-col gap-1 text-sm" data-testid="route-steps">
     {#each currentSequence() as item, index (item.kind === "path" ? `p-${item.lineId}-${index}` : item.id)}
-      <li class="flex items-center gap-2 bg-[#2a2a2a] rounded px-2 py-1">
-        <span class="text-neutral-500 w-5 text-right">{index + 1}</span>
+      <li class="flex flex-col gap-1 bg-[#2a2a2a] rounded px-2 py-1">
+        <div class="flex items-center gap-2">
+          <span class="text-neutral-500 w-5 text-right">{index + 1}</span>
+          {#if item.kind === "path"}
+            <span class="size-2.5 rounded-full" style="background:{colors.get(item.lineId) ?? '#fff'}"></span>
+            <span class="flex-1">follow <b>{names.get(item.lineId) ?? "?"}</b></span>
+          {:else}
+            <span class="flex-1">⚙ <b>{item.robotAction ? label(item.robotAction.name) : "wait"}</b>
+              {#if item.robotAction}
+                {#each byName.get(item.robotAction.name)?.params ?? [] as param (param.name)}
+                  <input type="number" step="0.1" min={param.min} max={param.max}
+                    class="w-16 ml-1 bg-[#333] border border-[#444] rounded px-1 text-right"
+                    value={item.robotAction.params[param.name] ?? param.default}
+                    title={param.label}
+                    onchange={(e) => setStepParam(index, param.name, Number((e.target as HTMLInputElement).value))} />
+                  <span class="text-neutral-400">{param.unit}</span>
+                {/each}
+              {:else}
+                <span class="text-neutral-400">{describeStep(item)}</span>
+              {/if}
+            </span>
+            <button class="text-red-400 px-1" title="Remove" onclick={() => removeStep(index)}>✕</button>
+          {/if}
+          <button class="px-1 text-neutral-400" title="Move up" onclick={() => moveStep(index, -1)}>↑</button>
+          <button class="px-1 text-neutral-400" title="Move down" onclick={() => moveStep(index, 1)}>↓</button>
+        </div>
         {#if item.kind === "path"}
-          <span class="size-2.5 rounded-full" style="background:{colors.get(item.lineId) ?? '#fff'}"></span>
-          <span class="flex-1">follow <b>{names.get(item.lineId) ?? "?"}</b></span>
-        {:else}
-          <span class="flex-1">⚙ <b>{item.robotAction ? label(item.robotAction.name) : "wait"}</b>
-            {#if item.robotAction}
-              {#each byName.get(item.robotAction.name)?.params ?? [] as param (param.name)}
-                <input type="number" step="0.1" min={param.min} max={param.max}
-                  class="w-16 ml-1 bg-[#333] border border-[#444] rounded px-1 text-right"
-                  value={item.robotAction.params[param.name] ?? param.default}
-                  title={param.label}
-                  onchange={(e) => setStepParam(index, param.name, Number((e.target as HTMLInputElement).value))} />
-                <span class="text-neutral-400">{param.unit}</span>
-              {/each}
-            {:else}
-              <span class="text-neutral-400">{describeStep(item)}</span>
-            {/if}
-          </span>
-          <button class="text-red-400 px-1" title="Remove" onclick={() => removeStep(index)}>✕</button>
+          <!-- Functions on this path, in the order they fire. -->
+          {#each pathEvents(item.lineId) as event (event.id)}
+            <div class="flex items-center gap-2 pl-7" data-testid="event-row">
+              <span class="text-yellow-400">◆</span>
+              <input type="number" min="0" max="100" step="1" class="w-14 bg-[#333] border border-[#444] rounded px-1 text-right"
+                value={Math.round(event.at * 100)} title="How far along the path, in %"
+                onchange={(e) => { setEvent(item.lineId, event.id, { at: Math.min(100, Math.max(0, Number((e.target as HTMLInputElement).value) || 0)) / 100 }); recordChange?.(); }} />
+              <span class="text-neutral-400">%</span>
+              <select class="flex-1 bg-[#333] border border-[#444] rounded px-1" value={event.action}
+                onchange={(e) => setEvent(item.lineId, event.id, { action: (e.target as HTMLSelectElement).value })}>
+                {#each pathActions as action (action.name)}<option value={action.name}>{action.label}</option>{/each}
+              </select>
+              <button class="text-red-400 px-1" title="Remove" onclick={() => removeEvent(item.lineId, event.id)}>✕</button>
+            </div>
+          {/each}
         {/if}
-        <button class="px-1 text-neutral-400" title="Move up" onclick={() => moveStep(index, -1)}>↑</button>
-        <button class="px-1 text-neutral-400" title="Move down" onclick={() => moveStep(index, 1)}>↓</button>
       </li>
     {/each}
   </ol>
-  <div class="flex items-center gap-2 text-sm">
-    <select class="flex-1 bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addStepAction} data-testid="step-action">
-      {#each stepActions as action (action.name)}<option value={action.name} title={action.description}>{action.label}</option>{/each}
-    </select>
-    <button class="px-2 py-1 rounded bg-[#333]" onclick={addStep} data-testid="step-add">
-      + Add step{selectedLine ? ` after ${names.get(selectedLine.id) ?? "path"}` : ""}</button>
-  </div>
 
-  <div class="font-semibold text-sm mt-1">
-    On the path{selectedLine ? `: ${names.get(selectedLine.id) ?? ""}` : ""}
+  <hr class="border-[#444] my-1" />
+
+  <div class="font-semibold text-sm">Add to the sequence</div>
+  <div class="flex rounded overflow-hidden border border-[#444] text-sm w-fit">
+    <button class="px-3 py-1 {addMode === 'function' ? 'bg-yellow-500 text-black font-semibold' : 'bg-[#2b2b2b]'}"
+      onclick={() => (addMode = "function")} data-testid="add-mode-function">Function</button>
+    <button class="px-3 py-1 {addMode === 'path' ? 'bg-yellow-500 text-black font-semibold' : 'bg-[#2b2b2b]'}"
+      onclick={() => (addMode = "path")} data-testid="add-mode-path">Function on a path</button>
   </div>
-  {#if selectedLine}
-    {#each selectedLine.robotEvents ?? [] as event (event.id)}
-      <div class="flex items-center gap-2 text-sm bg-[#2a2a2a] rounded px-2 py-1">
-        <span class="text-yellow-400">◆</span>
-        <select class="bg-[#333] border border-[#444] rounded px-1" value={event.action}
-          onchange={(e) => setEvent(event.id, { action: (e.target as HTMLSelectElement).value })}>
-          {#each pathActions as action (action.name)}<option value={action.name}>{action.label}</option>{/each}
-        </select>
-        <span class="text-neutral-400">at</span>
-        <input type="range" min="0" max="100" step="1" class="flex-1" value={Math.round(event.at * 100)}
-          oninput={(e) => setEvent(event.id, { at: Number((e.target as HTMLInputElement).value) / 100 })}
-          onchange={() => recordChange?.()} data-testid="event-at" />
-        <span class="w-10 text-right tabular-nums">{Math.round(event.at * 100)}%</span>
-        <button class="text-red-400 px-1" title="Remove" onclick={() => removeEvent(event.id)}>✕</button>
-      </div>
-    {/each}
-    <div class="flex items-center gap-2 text-sm">
-      <select class="flex-1 bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addEventAction} data-testid="event-action">
+  {#if addMode === "function"}
+    <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-sm">
+      <span class="text-neutral-400">Function</span>
+      <select class="bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addFunctionAction} data-testid="fn-action">
+        {#each stepActions as action (action.name)}<option value={action.name} title={action.description}>{action.label}</option>{/each}
+      </select>
+      <span class="text-neutral-400">After</span>
+      <select class="bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addAfter} data-testid="fn-after">
+        <option value="end">the end</option>
+        {#each currentSequence() as item, index (index)}<option value={String(index)}>{stepLabel(item, index)}</option>{/each}
+      </select>
+    </div>
+    <button class="px-3 py-1 rounded bg-[#333] text-sm w-fit" onclick={addFunction} data-testid="fn-add">+ Add function</button>
+    <div class="text-xs text-neutral-400">{byName.get(addFunctionAction)?.description ?? ""}</div>
+  {:else}
+    <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-sm">
+      <span class="text-neutral-400">Path</span>
+      <select class="bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addPathId} data-testid="onpath-path">
+        {#each allPaths as line (line.id)}<option value={line.id}>{names.get(line.id)}</option>{/each}
+      </select>
+      <span class="text-neutral-400">Function</span>
+      <select class="bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addOnPathAction} data-testid="onpath-action">
         {#each pathActions as action (action.name)}<option value={action.name} title={action.description}>{action.label}</option>{/each}
       </select>
-      <button class="px-2 py-1 rounded bg-[#333]" onclick={addEvent} data-testid="event-add">+ Add on this path</button>
+      <span class="text-neutral-400">At</span>
+      <span class="flex items-center gap-2">
+        <input type="range" min="0" max="100" step="1" class="flex-1" bind:value={addPercent} />
+        <input type="number" min="0" max="100" step="1" class="w-16 bg-[#2b2b2b] border border-[#444] rounded px-1 text-right"
+          bind:value={addPercent} data-testid="onpath-at" />
+        <span class="text-neutral-400">% along</span>
+      </span>
     </div>
-    <div class="text-xs text-neutral-400">Instant actions fire part way along the path, shown as ◆ on the field.
-      Actions that take time (shoot, wait) go between paths as steps.</div>
-  {:else}
-    <div class="text-sm text-neutral-400">Select a path to put actions on it.</div>
+    <button class="px-3 py-1 rounded bg-[#333] text-sm w-fit" onclick={addOnPath} data-testid="onpath-add">+ Add on path</button>
+    <div class="text-xs text-neutral-400">Fires while the robot drives, when it is that far along the path. Shown as ◆
+      on the field and under the path above. Only instant functions can go on a path; ones that take time
+      (shoot, wait) are added as a Function.</div>
   {/if}
 </div>
