@@ -193,17 +193,15 @@
     lines = walk(lines);
   }
 
-  /** The robot's top speed (Foresight maxAchievableForwardVelocity), inches per second. */
-  const MAX_SPEED = 68;
-
+  /** A path's top speed, % of the robot's calibrated top speed; undefined = 100%. */
   function pathSpeed(id: string): number | undefined {
-    return atomicSegments(lines).find((l) => l.id === id)?.maxSpeed;
+    return atomicSegments(lines).find((l) => l.id === id)?.speedPercent;
   }
 
-  /** A path's top speed; empty or 0 means full speed. */
+  /** Empty, 0 or 100 means full speed. */
   function setPathSpeed(id: string, text: string) {
-    const value = Number(text);
-    updatePath(id, (line) => ({ ...line, maxSpeed: text.trim() && value > 0 ? Math.min(value, 200) : undefined }));
+    const value = Math.round(Number(text));
+    updatePath(id, (line) => ({ ...line, speedPercent: text.trim() && value > 0 && value < 100 ? value : undefined }));
   }
 
   function pathEvents(id: string) {
@@ -399,18 +397,18 @@
             <span class="size-2.5 rounded-full" style="background:{colors.get(item.lineId) ?? '#fff'}"></span>
             {#if editing === `speed-${item.lineId}`}
               <span class="flex flex-1 flex-wrap items-center gap-2">follow <b>{names.get(item.lineId) ?? "?"}</b>
-                <span class="flex items-center gap-1">max
-                  <input type="number" step="1" min="1" max={MAX_SPEED} placeholder="full"
+                <span class="flex items-center gap-1">speed
+                  <input type="number" step="5" min="1" max="100" placeholder="100"
                     class="w-16 bg-[#333] border border-[#444] rounded px-1 text-right" data-testid="path-speed"
-                    value={pathSpeed(item.lineId) ?? ""} title="Top speed on this path. Empty: full speed."
+                    value={pathSpeed(item.lineId) ?? ""} title="Top speed on this path, % of the robot's top speed. Empty: 100%."
                     onchange={(e) => setPathSpeed(item.lineId, (e.target as HTMLInputElement).value)} />
-                  <span class="text-neutral-400">in/s</span></span>
-                <span class="text-xs text-neutral-400">empty = full (about {MAX_SPEED})</span>
+                  <span class="text-neutral-400">%</span></span>
+                <span class="text-xs text-neutral-400">of top speed; empty = 100%</span>
               </span>
               <button class="icon-btn text-green-400" title="Done" data-testid="path-speed-done" onclick={() => { editing = null; recordChange?.(); }}>✓</button>
             {:else}
               <span class="flex-1">follow <b>{names.get(item.lineId) ?? "?"}</b>
-                <span class="text-neutral-400" data-testid="path-speed-text">{pathSpeed(item.lineId) ? `max ${pathSpeed(item.lineId)} in/s` : "full speed"}</span></span>
+                <span class="text-neutral-400" data-testid="path-speed-text">{pathSpeed(item.lineId) ? `${pathSpeed(item.lineId)}% speed` : "full speed"}</span></span>
               <button class="icon-btn" title="Set this path's top speed" data-testid="path-speed-edit" onclick={() => (editing = `speed-${item.lineId}`)}>
                 <svg viewBox="0 0 20 20" class="size-3.5" fill="currentColor" aria-hidden="true"><path d="M13.6 2.6a2 2 0 0 1 2.8 0l1 1a2 2 0 0 1 0 2.8L8 15.8 3.5 17l1.2-4.5 8.9-9.9Z"/></svg>
               </button>

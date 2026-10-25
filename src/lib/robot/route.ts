@@ -140,8 +140,8 @@ export interface RouteFile {
     points: number[][];
     heading: { type: "linear"; start: number; end: number } | { type: "constant"; degrees: number } | { type: "tangential"; reverse: boolean };
     events: { at: number; action: string; params: Record<string, number> }[];
-    /** Top speed on this path, inches per second (absent: full speed). */
-    maxSpeed?: number;
+    /** Top speed on this path, % of the robot's calibrated top speed (absent: 100%). */
+    speedPercent?: number;
   }[];
   steps: ({ follow: string } | { action: string; params: Record<string, number> })[];
 }
@@ -202,7 +202,7 @@ export function exportRoute(
       points: [start, ...line.controlPoints, line.endPoint].map((p) => [round(p.x), round(p.y)]),
       heading,
       events,
-      ...(line.maxSpeed && line.maxSpeed > 0 ? { maxSpeed: round(line.maxSpeed) } : {}),
+      ...(line.speedPercent && line.speedPercent < 100 ? { speedPercent: Math.round(line.speedPercent) } : {}),
     };
   });
 
@@ -273,7 +273,7 @@ export function importRoute(text: string, actions: RobotActionDef[]): {
       controlPoints: points.slice(1, -1),
       heading,
       robotEvents,
-      maxSpeed: Number(path.maxSpeed) > 0 ? Number(path.maxSpeed) : undefined,
+      speedPercent: Number(path.speedPercent) > 0 && Number(path.speedPercent) < 100 ? Number(path.speedPercent) : undefined,
     };
   });
   const lines = normalizePaths(stored);

@@ -153,8 +153,8 @@ export function calculatePathTime(
     if (useMotionProfile) {
       segmentTime = calculateMotionProfileTime(
         length,
-        // BioBuzz: a path's own top speed, when slower than the robot's.
-        line.kind === "atomic" && line.maxSpeed ? Math.min(line.maxSpeed, settings.maxVelocity!) : settings.maxVelocity!,
+        // BioBuzz: a path's own top speed, as a % of the robot's.
+        line.kind === "atomic" && line.speedPercent ? settings.maxVelocity! * line.speedPercent / 100 : settings.maxVelocity!,
         settings.maxAcceleration!,
         settings.maxDeceleration,
       );

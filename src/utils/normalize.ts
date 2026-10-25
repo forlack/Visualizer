@@ -54,8 +54,8 @@ type StoredCommon = {
   heading?: Heading | HeadingType;
   /** BioBuzz robot actions along the path. */
   robotEvents?: RobotEvent[];
-  /** BioBuzz top speed on the path, inches per second. */
-  maxSpeed?: number;
+  /** BioBuzz top speed on the path, % of the robot's top speed. */
+  speedPercent?: number;
 };
 
 /**
@@ -200,7 +200,7 @@ export function normalizePaths(input: StoredPath[] = []): Path[] {
       },
       controlPoints: path.controlPoints || [],
       robotEvents: Array.isArray(path.robotEvents) ? path.robotEvents : undefined,
-      maxSpeed: Number(path.maxSpeed) > 0 ? Number(path.maxSpeed) : undefined,
+      speedPercent: percent(path.speedPercent),
       throughPoints: path.throughPoints?.map((point) => ({
         x: Number(point.x) || 0,
         y: Number(point.y) || 0,
@@ -223,4 +223,10 @@ export function deriveSequence(
     kind: "path",
     lineId: ln.id,
   }));
+}
+
+/** A path's speed %: 1 to 100, or undefined for full speed. */
+function percent(value: unknown): number | undefined {
+  const number = Number(value);
+  return number > 0 && number < 100 ? Math.max(1, Math.round(number)) : undefined;
 }
