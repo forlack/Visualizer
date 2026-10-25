@@ -58,6 +58,18 @@
   let addOnPathAction = $state("flywheelsOn");
   let addPathId = $state("");
   let addPercent = $state(50);
+  /** Settings chosen in the Add form before adding, per function (shown with its defaults). */
+  let addValues = $state<Record<string, Record<string, number>>>({});
+
+  function addParams(name: string): Record<string, number> {
+    const def = byName.get(name);
+    return def ? { ...defaultParams(def), ...(addValues[name] ?? {}) } : {};
+  }
+
+  function setAddParam(name: string, param: string, value: number) {
+    if (!Number.isFinite(value)) return;
+    addValues = { ...addValues, [name]: { ...(addValues[name] ?? {}), [param]: value } };
+  }
   /** The step or on-path function being edited (its id), or null. */
   let editing: string | null = $state(null);
 
@@ -118,7 +130,7 @@
     if (!def) return;
     const items = [...currentSequence()];
     const after = addAfter === "end" ? items.length - 1 : Math.min(Number(addAfter), items.length - 1);
-    items.splice(after + 1, 0, actionStep(def));
+    items.splice(after + 1, 0, actionStep(def, addParams(def.name)));
     sequence = items;
     addAfter = "end";
     recordChange?.();
@@ -195,7 +207,7 @@
     updatePath(pathId, (line) => ({
       ...line,
       robotEvents: [...(line.robotEvents ?? []), {
-        id: makePathId().replace("line-", "event-"), at, action: def.name, params: defaultParams(def),
+        id: makePathId().replace("line-", "event-"), at, action: def.name, params: addParams(def.name),
       }],
     }));
     recordChange?.();
@@ -453,6 +465,16 @@
       <select class="bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addFunctionAction} data-testid="fn-action">
         {#each stepActions as action (action.name)}<option value={action.name} title={action.description}>{action.label}</option>{/each}
       </select>
+      {#each byName.get(addFunctionAction)?.params ?? [] as param (param.name)}
+        <span class="text-neutral-400">{param.label}</span>
+        <span class="flex items-center gap-2">
+          <input type="number" step="0.1" min={param.min} max={param.max}
+            class="w-20 bg-[#2b2b2b] border border-[#444] rounded px-1 text-right" data-testid="fn-param"
+            value={addParams(addFunctionAction)[param.name]}
+            oninput={(e) => setAddParam(addFunctionAction, param.name, Number((e.target as HTMLInputElement).value))} />
+          <span class="text-neutral-400">{param.unit}</span>
+        </span>
+      {/each}
       <span class="text-neutral-400">After</span>
       <select class="bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addAfter} data-testid="fn-after">
         <option value="end">the end</option>
@@ -471,6 +493,16 @@
       <select class="bg-[#2b2b2b] border border-[#444] rounded px-2 py-1" bind:value={addOnPathAction} data-testid="onpath-action">
         {#each pathActions as action (action.name)}<option value={action.name} title={action.description}>{action.label}</option>{/each}
       </select>
+      {#each byName.get(addOnPathAction)?.params ?? [] as param (param.name)}
+        <span class="text-neutral-400">{param.label}</span>
+        <span class="flex items-center gap-2">
+          <input type="number" step="0.1" min={param.min} max={param.max}
+            class="w-20 bg-[#2b2b2b] border border-[#444] rounded px-1 text-right" data-testid="onpath-param"
+            value={addParams(addOnPathAction)[param.name]}
+            oninput={(e) => setAddParam(addOnPathAction, param.name, Number((e.target as HTMLInputElement).value))} />
+          <span class="text-neutral-400">{param.unit}</span>
+        </span>
+      {/each}
       <span class="text-neutral-400">At</span>
       <span class="flex items-center gap-2">
         <input type="range" min="0" max="100" step="1" class="flex-1" bind:value={addPercent} />
