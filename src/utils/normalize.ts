@@ -54,6 +54,8 @@ type StoredCommon = {
   heading?: Heading | HeadingType;
   /** BioBuzz robot actions along the path. */
   robotEvents?: RobotEvent[];
+  /** BioBuzz top speed on the path, inches per second. */
+  maxSpeed?: number;
 };
 
 /**
@@ -198,6 +200,7 @@ export function normalizePaths(input: StoredPath[] = []): Path[] {
       },
       controlPoints: path.controlPoints || [],
       robotEvents: Array.isArray(path.robotEvents) ? path.robotEvents : undefined,
+      maxSpeed: Number(path.maxSpeed) > 0 ? Number(path.maxSpeed) : undefined,
       throughPoints: path.throughPoints?.map((point) => ({
         x: Number(point.x) || 0,
         y: Number(point.y) || 0,

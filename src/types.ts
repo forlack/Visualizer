@@ -91,6 +91,8 @@ export interface Atomic {
   controlPoints: ControlPoint[];
   /** BioBuzz: robot actions placed along this path. */
   robotEvents?: RobotEvent[];
+  /** BioBuzz: top speed on this path, inches per second (none: full speed). */
+  maxSpeed?: number;
   /** Interior poses for Pedro's Paths.through(); never emitted as controls. */
   throughPoints?: BasePoint[];
   heading: Heading;
