@@ -129,7 +129,8 @@ export function describeStep(item: SequenceWaitItem): string {
 
 export interface RobotSize { width: number; length: number; safetyMargin: number }
 
-export interface RouteFile {
+/** The old route file layout, still used inside this editor (converted to version 3 on save). */
+interface RouteFileV2 {
   version: 2;
   name: string;
   start: { x: number; y: number; heading: number };
@@ -144,6 +145,114 @@ export interface RouteFile {
     speedPercent?: number;
   }[];
   steps: ({ follow: string } | { action: string; params: Record<string, number> })[];
+}
+
+/**
+ * Version 3, what the robot reads (lib/AutoRoute.java): the drives are in the steps, each
+ * starting where the previous one ended (position and heading).
+ */
+type Heading3 = { type: "travel"; reverse?: boolean } | { type: "keep" } | { type: "turn"; degrees: number; by?: number }
+  | { type: "face"; x: number; y: number };
+interface Drive3 {
+  name: string;
+  segments: { via?: number[][]; to: number[] }[];
+  heading: Heading3;
+  speedPercent?: number;
+  events?: { at: number; action: string; params: Record<string, number> }[];
+}
+export interface RouteFile {
+  version: 3;
+  name: string;
+  start: { x: number; y: number; heading: number };
+  robot?: RobotSize;
+  steps: ({ drive: Drive3 } | { action: string; params: Record<string, number> })[];
+}
+
+const sameAngle = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180) < 0.5;
+const degrees = (radians: number) => (radians * 180) / Math.PI;
+
+/** Heading (degrees) at the end of points when facing where it goes. */
+function endTangent(points: number[][], reverse: boolean): number {
+  const [x1, y1] = points[points.length - 2];
+  const [x2, y2] = points[points.length - 1];
+  const angle = degrees(Math.atan2(y2 - y1, x2 - x1));
+  return (((reverse ? angle + 180 : angle) % 360) + 360) % 360;
+}
+
+/** The editor's paths and steps (v2) as a version 3 file. */
+function toV3(old: RouteFileV2): RouteFile {
+  const paths = new Map(old.paths.map((p) => [p.name, p]));
+  let heading = old.start.heading;
+  const steps: RouteFile["steps"] = [];
+  for (const step of old.steps) {
+    if (!("follow" in step)) { steps.push(step); continue; }
+    const path = paths.get(step.follow)!;
+    const h = path.heading;
+    let next: Heading3;
+    if (h.type === "linear") {
+      next = sameAngle(h.end, heading) ? { type: "keep" } : { type: "turn", degrees: h.end };
+      heading = h.end;
+    } else if (h.type === "constant") {
+      next = sameAngle(h.degrees, heading) ? { type: "keep" } : { type: "turn", degrees: h.degrees };
+      heading = h.degrees;
+    } else {
+      next = h.reverse ? { type: "travel", reverse: true } : { type: "travel" };
+      heading = endTangent(path.points, h.reverse);
+    }
+    const via = path.points.slice(1, -1);
+    const drive: Drive3 = {
+      name: path.name,
+      segments: [via.length ? { via, to: path.points[path.points.length - 1] } : { to: path.points[path.points.length - 1] }],
+      heading: next,
+    };
+    if (path.speedPercent) drive.speedPercent = path.speedPercent;
+    if (path.events.length) drive.events = path.events;
+    steps.push({ drive });
+  }
+  return { version: 3, name: old.name, start: old.start, ...(old.robot ? { robot: old.robot } : {}), steps };
+}
+
+/**
+ * A version 3 file in the editor's terms (v2). Lossy where this editor has no equivalent:
+ * waypoints become separate paths and "face a point" becomes facing the way it goes; each is
+ * listed in problems.
+ */
+function fromV3(route: RouteFile, problems: string[]): RouteFileV2 {
+  let at: number[] = [route.start.x, route.start.y];
+  let heading = route.start.heading;
+  const paths: RouteFileV2["paths"] = [];
+  const steps: RouteFileV2["steps"] = [];
+  for (const step of route.steps) {
+    if (!("drive" in step)) { steps.push(step); continue; }
+    const drive = step.drive;
+    const h = drive.heading ?? { type: "travel" };
+    if (drive.segments.length > 1) {
+      problems.push(`${drive.name} has waypoints: this editor shows each part as its own path (the robot stops between them if you save here)`);
+    }
+    drive.segments.forEach((segment, index) => {
+      const points = [at, ...(segment.via ?? []), segment.to];
+      const name = index === 0 ? drive.name : `${drive.name}_${index + 1}`;
+      let pathHeading: RouteFileV2["paths"][number]["heading"];
+      if (h.type === "keep") {
+        pathHeading = { type: "linear", start: heading, end: heading };
+      } else if (h.type === "turn") {
+        pathHeading = { type: "linear", start: heading, end: h.degrees };
+        heading = h.degrees;
+      } else {
+        if (h.type === "face") problems.push(`${drive.name} faces a point: this editor shows it as facing the way it goes`);
+        pathHeading = { type: "tangential", reverse: h.type === "travel" && !!h.reverse };
+        heading = endTangent(points, h.type === "travel" && !!h.reverse);
+      }
+      paths.push({
+        name, points, heading: pathHeading,
+        events: index === 0 ? (drive.events ?? []) : [],
+        ...(index === 0 && drive.speedPercent ? { speedPercent: drive.speedPercent } : {}),
+      });
+      steps.push({ follow: name });
+      at = segment.to;
+    });
+  }
+  return { version: 2, name: route.name, start: route.start, ...(route.robot ? { robot: route.robot } : {}), paths, steps };
 }
 
 const round = (value: number) => Math.round(value * 10000) / 10000;
@@ -173,6 +282,18 @@ export function exportRoute(
   actions: RobotActionDef[],
   robot?: RobotSize,
 ): { route: RouteFile; problems: string[] } {
+  const result = exportRouteV2(name, startPoint, lines, sequence, actions, robot);
+  return { route: toV3(result.route), problems: result.problems };
+}
+
+function exportRouteV2(
+  name: string,
+  startPoint: StartPose,
+  lines: Path[],
+  sequence: SequenceItem[],
+  actions: RobotActionDef[],
+  robot?: RobotSize,
+): { route: RouteFileV2; problems: string[] } {
   const problems: string[] = [];
   const known = new Map(actions.map((a) => [a.name, a]));
   const segments = flattenToAtomicSegments(startPoint, lines);
@@ -182,7 +303,7 @@ export function exportRoute(
     const pathName = names.get(line.id)!;
     if (line.throughPoints?.length) problems.push(`${pathName}: "curve through" paths are not supported on the robot yet`);
     if (ancestors.some((group) => group.heading)) problems.push(`${pathName}: group headings are not supported; set the heading on each path`);
-    let heading: RouteFile["paths"][number]["heading"];
+    let heading: RouteFileV2["paths"][number]["heading"];
     switch (line.heading.type) {
       case "linear": heading = { type: "linear", start: line.heading.startDeg, end: line.heading.endDeg }; break;
       case "constant": heading = { type: "constant", degrees: line.heading.degrees }; break;
@@ -206,7 +327,7 @@ export function exportRoute(
     };
   });
 
-  const steps: RouteFile["steps"] = [];
+  const steps: RouteFileV2["steps"] = [];
   const order = sequence.length ? sequence : segments.map(({ line }) => ({ kind: "path" as const, lineId: line.id }));
   for (const item of order) {
     if (item.kind === "path") {
@@ -241,9 +362,10 @@ const COLORS = ["#f5b301", "#58a6ff", "#3fb950", "#bc8cff", "#ff7b72", "#39c5cf"
 export function importRoute(text: string, actions: RobotActionDef[]): {
   name: string; startPoint: StartPose; lines: Path[]; sequence: SequenceItem[]; problems: string[]; robot: RobotSize | null;
 } {
-  const route = JSON.parse(text) as RouteFile;
-  if (route.version !== 2) throw new Error('Not a Total Chaos route file ("version": 2)');
+  const parsed = JSON.parse(text);
   const problems: string[] = [];
+  if (parsed.version !== 3) throw new Error('Not a Total Chaos auton file ("version": 3)');
+  const route = fromV3(parsed as RouteFile, problems);
   const known = new Map(actions.map((a) => [a.name, a]));
   const startPoint: StartPose = { x: route.start.x, y: route.start.y, headingDeg: route.start.heading, name: "start" };
 
