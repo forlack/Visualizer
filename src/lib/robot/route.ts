@@ -152,7 +152,7 @@ interface RouteFileV2 {
  * starting where the previous one ended (position and heading).
  */
 type Heading3 = { type: "travel"; reverse?: boolean } | { type: "keep" } | { type: "turn"; degrees: number; by?: number }
-  | { type: "face"; x: number; y: number };
+  | { type: "face"; x: number; y: number; away?: boolean };
 interface Drive3 {
   name: string;
   segments: { via?: number[][]; to: number[] }[];
@@ -239,7 +239,7 @@ function fromV3(route: RouteFile, problems: string[]): RouteFileV2 {
         pathHeading = { type: "linear", start: heading, end: h.degrees };
         heading = h.degrees;
       } else {
-        if (h.type === "face") problems.push(`${drive.name} faces a point: this editor shows it as facing the way it goes`);
+        if (h.type === "face") problems.push(`${drive.name} faces ${h.away ? "away from " : ""}a point: this editor shows it as facing the way it goes`);
         pathHeading = { type: "tangential", reverse: h.type === "travel" && !!h.reverse };
         heading = endTangent(points, h.type === "travel" && !!h.reverse);
       }
